@@ -7,37 +7,37 @@ from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
 
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set")
 
-# Ensure the URL starts with postgresql+asyncpg://
-# Some platforms provide postgres:// or postgresql://
+# Robust protocol replacement
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+    DATABASE_URL = "postgresql+asyncpg://" + DATABASE_URL[len("postgres://"):]
 elif DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+    DATABASE_URL = "postgresql+asyncpg://" + DATABASE_URL[len("postgresql://"):]
 
-# asyncpg doesn't support 'sslmode'. We need to move it to 'connect_args' as 'ssl'
-parsed_url = urlparse(DATABASE_URL)
-query_params = parse_qs(parsed_url.query)
-
+# Manually handle query parameters to avoid urlparse/urlunparse issues with custom protocols
 connect_args = {}
-if "sslmode" in query_params:
-    ssl_mode = query_params.pop("sslmode")[0]
-    # asyncpg uses 'ssl' instead of 'sslmode'
-    if ssl_mode in ["require", "verify-ca", "verify-full"]:
-        connect_args["ssl"] = True
-    else:
-        connect_args["ssl"] = False
+base_url = DATABASE_URL
+if "?" in DATABASE_URL:
+    base_url, query_string = DATABASE_URL.split("?", 1)
+    params = parse_qs(query_string)
+    
+    # Handle sslmode
+    if "sslmode" in params:
+        ssl_mode = params["sslmode"][0]
+        if ssl_mode in ["require", "verify-ca", "verify-full"]:
+            connect_args["ssl"] = True
+    
+    # Remove incompatible params for asyncpg
+    # We reconstruct the URL without any query params to stay safe
+    DATABASE_URL = base_url
 
-# Remove other potential incompatible arguments for asyncpg
-query_params.pop("channel_binding", None)
-
-# Reconstruct the URL without the problematic query parameters
-new_query = urlencode(query_params, doseq=True)
-DATABASE_URL = urlunparse(parsed_url._replace(query=new_query))
+# Log masked URL for debugging without exposing secrets
+masked_url = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
+print(f"DEBUG: Connecting to host: {masked_url}")
 
 engine = create_async_engine(
     DATABASE_URL, 
