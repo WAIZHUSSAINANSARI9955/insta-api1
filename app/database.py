@@ -7,16 +7,16 @@ from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set")
 
-# Strip potential quotes and whitespace (fixes common copy-paste issues on cloud platforms)
-DATABASE_URL = DATABASE_URL.strip().strip("'").strip('"')
-
 # Ensure the URL starts with postgresql+asyncpg://
-if DATABASE_URL.startswith("postgresql://"):
+# Some platforms provide postgres:// or postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 # asyncpg doesn't support 'sslmode'. We need to move it to 'connect_args' as 'ssl'
