@@ -3,7 +3,7 @@
 Agar aap ek React, Next.js, ya Vue.js frontend bana rahe hain, toh is API ko connect karne ke liye niche di gayi information zaroori hai.
 
 ### 1. API Configuration
-- **Base URL**: `https://[APKA-RAILWAY-DOMAIN].up.railway.app`
+- **Base URL**: `https://insta-api1-production.up.railway.app/`
 - **Swagger Docs**: `/docs` (Always check this for live endpoint testing).
 
 ### 2. Endpoints Detail
