@@ -120,10 +120,15 @@ class InstagramScraper:
                         data = r.json()
                         user = data.get("data", {}).get("user")
                         if user and user.get("username"):
-                            print(f"DEBUG: Strategy 1 ({mode}) SUCCESS.")
-                            # Fetch more media to reach the target of 30+
-                            extra_items = await self._fetch_feed_pages(client, username, max_videos=60)
-                            return self._format_user_data(user, extra_items)
+                            # If we have counts, we're good. If counts are 0, web_profile_info might be masked.
+                            # We'll proceed to Strategy 2 if counts are 0.
+                            f_count = user.get("edge_followed_by", {}).get("count") or user.get("follower_count") or 0
+                            if f_count > 0:
+                                print(f"DEBUG: Strategy 1 ({mode}) SUCCESS with data.")
+                                extra_items = await self._fetch_feed_pages(client, username, max_videos=60)
+                                return self._format_user_data(user, extra_items)
+                            else:
+                                print(f"DEBUG: Strategy 1 ({mode}) SUCCESS but yields 0 followers. Forcing Strategy 2 fallback...")
                     elif r.status_code == 429:
                         print(f"DEBUG: Strategy 1 ({mode}) Rate Limited.")
                     else:
@@ -162,7 +167,7 @@ class InstagramScraper:
                             info_data = info_r.json().get("user", {})
                             # Merge info_data into profile_user
                             for key in ["follower_count", "following_count", "biography", "full_name"]:
-                                if info_data.get(key):
+                                if info_data.get(key) is not None:
                                     profile_user[key] = info_data[key]
                             
                             # Update HD pic
@@ -170,7 +175,7 @@ class InstagramScraper:
                             if hd_pic:
                                 profile_user["profile_pic_url"] = hd_pic
                             
-                            print(f"DEBUG: Mobile Info SUCCESS — followers={profile_user.get('follower_count')}")
+                            print(f"DEBUG: Mobile Info SUCCESS — followers={profile_user.get('follower_count')}, bio={'Yes' if profile_user.get('biography') else 'No'}")
                     except Exception as e:
                         print(f"DEBUG: Mobile info fetch failed: {e}")
 
