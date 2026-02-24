@@ -15,6 +15,7 @@ class User(Base):
     followers_count = Column(Integer, default=0)
     following_count = Column(Integer, default=0)
     posts_count = Column(Integer, default=0)
+    biography = Column(Text)
     last_scraped_at = Column(DateTime, default=datetime.utcnow)
 
     media = relationship("Media", back_populates="user", cascade="all, delete-orphan")

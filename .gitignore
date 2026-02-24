@@ -5,3 +5,9 @@ __pycache__/
 .pytest_cache/
 .vscode/
 *.zip
+*.db
+*.log
+raw_*.html
+debug_*.txt
+*.json
+!requirements.txt

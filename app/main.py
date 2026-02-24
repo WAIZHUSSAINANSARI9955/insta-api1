@@ -1,4 +1,5 @@
 import uvicorn
+import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -6,6 +7,10 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from .database import engine, Base
 from .routes import profile, media
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Rate limiter setup
 limiter = Limiter(key_func=get_remote_address)
@@ -17,7 +22,7 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS middleware
+# Permissive CORS for development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,30 +31,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Startup event to create tables
+# Robust startup
 @app.on_event("startup")
 async def startup():
-    async with engine.begin() as conn:
-        # This will create tables if they don't exist
-        # In a real production app, use Alembic migrations
-        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Starting up and checking database connection...")
+    try:
+        async with engine.begin() as conn:
+            # Create tables
+            await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database connection and table check SUCCESSFUL.")
+    except Exception as e:
+        logger.error(f"DATABASE STARTUP FAILED: {e}")
+        # We don't exit, but this helps the user see the log
 
 # Include routes
 app.include_router(profile.router)
 app.include_router(media.router)
 
 @app.get("/")
-@limiter.limit("5/minute")
 async def root(request: Request):
     return {
-        "message": "Welcome to Instagram Scraping API",
-        "docs": "/docs",
-        "endpoints": {
-            "profile": "/profile/{username}",
-            "media": "/media/{username}",
-            "bulk_download": "/bulk-download/{username} (POST)"
-        }
+        "status": "online",
+        "message": "Instagram API is running",
+        "endpoints": ["/profile/{username}", "/media/{username}"]
     }
 
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    # Ensure uvicorn runs on 8000 and clears previous binds if possible
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
