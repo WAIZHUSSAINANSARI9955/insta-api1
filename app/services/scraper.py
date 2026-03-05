@@ -126,7 +126,7 @@ class InstagramScraper:
                             if f_count > 0:
                                 print(f"DEBUG: Strategy 1 ({mode}) SUCCESS with data.")
                                 extra_items = await self._fetch_feed_pages(client, username, max_videos=60)
-                                return self._format_user_data(user, extra_items)
+                                return self._format_user_data(user, extra_items, username)
                             else:
                                 print(f"DEBUG: Strategy 1 ({mode}) SUCCESS but yields 0 followers. Forcing Strategy 2 fallback...")
                     elif r.status_code == 429:
@@ -206,7 +206,7 @@ class InstagramScraper:
                 # Merge and Format
                 if feed_items or profile_user.get("username"):
                     print(f"DEBUG: Strategy 2 FINAL — Items: {len(feed_items)}, Followers: {profile_user.get('follower_count', 0)}")
-                    return self._format_user_data(profile_user, feed_items)
+                    return self._format_user_data(profile_user, feed_items, username)
 
             except Exception as e:
                 print(f"DEBUG: Strategy 2 error: {e}")
@@ -230,7 +230,7 @@ class InstagramScraper:
                 if res: return res
         return None
 
-    def _format_user_data(self, user: Dict[str, Any], items: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _format_user_data(self, user: Dict[str, Any], items: List[Dict[str, Any]] = None, username: str = "") -> Dict[str, Any]:
         media_list = []
 
         # Combine all possible media sources
@@ -238,7 +238,7 @@ class InstagramScraper:
         edges = timeline.get("edges", []) or []
         # Merge graphql edges + feed API items (deduplicate by url)
         seen_urls = set()
-        all_raw = list(edges) + (items if items else []) + list(user.get("items", []))
+        all_raw = list(edges) + (items if items else []) + list(user.get("items") or [])
 
         for edge in all_raw:
             try:
@@ -290,8 +290,8 @@ class InstagramScraper:
         )
 
         return {
-            "username": user.get("username"),
-            "full_name": user.get("full_name") or user.get("username"),
+            "username": user.get("username") or username,
+            "full_name": user.get("full_name") or user.get("username") or username,
             "biography": user.get("biography") or "",
             "profile_pic_url": (
                 user.get("profile_pic_url_hd") or

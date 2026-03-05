@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 # Rate limiter setup
 limiter = Limiter(key_func=get_remote_address)
+import traceback
+from fastapi.responses import JSONResponse
+
 app = FastAPI(
     title="Instagram Scraping API",
     description="Production-ready FastAPI system for Instagram scraping and bulk downloading.",
@@ -21,6 +24,14 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"GLOBAL ERROR: {exc}\n{traceback.format_exc()}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}", "traceback": traceback.format_exc()},
+    )
 
 # Permissive CORS for development
 app.add_middleware(

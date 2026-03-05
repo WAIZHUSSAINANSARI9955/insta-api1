@@ -19,52 +19,56 @@ async def get_profile(username: str, force: bool = False, db: AsyncSession = Dep
     username = username.strip().lower().replace("@", "")
     logger.info(f"Targeting profile: {username} (Force: {force})")
 
-    # 1. Check Cache
     try:
-        stmt = (
-            select(User)
-            .where(User.username == username)
-            .options(selectinload(User.media))
-        )
-        result = await db.execute(stmt)
-        db_user = result.scalar_one_or_none()
-    except Exception as e:
-        logger.error(f"Cache check failed: {e}")
-        await db.rollback() # CRITICAL: Reset the transaction if it failed
-        db_user = None
+        # 1. Check Cache
+        try:
+            stmt = (
+                select(User)
+                .where(User.username == username)
+                .options(selectinload(User.media))
+            )
+            result = await db.execute(stmt)
+            db_user = result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"Cache check failed: {e}")
+            await db.rollback() 
+            db_user = None
 
-    current_time = datetime.utcnow()
-    
-    # Return cache if valid
-    if db_user and not force:
-        has_media = len(db_user.media) > 0
-        is_fresh = db_user.last_scraped_at > current_time - timedelta(hours=6)
-        has_counts = db_user.followers_count > 0
+        current_time = datetime.utcnow()
         
-        if has_media and is_fresh and has_counts:
-            logger.info(f"Returning cached data for {username}")
-            return db_user
-        
-        # If no media but extremely recent (last 10 mins), don't hammer Instagram again
-        # This prevents loop on private/empty accounts, but stays small enough for retries
-        if not has_media and db_user.last_scraped_at > current_time - timedelta(minutes=10):
-            logger.info(f"Returning recently attempted metadata for {username}")
-            return db_user
-
-    # 2. Scrape Fresh Data
-    logger.info(f"Starting live scrape for: {username}")
-    try:
-        scraped_data = await scraper.scrape_profile(username)
-        if not scraped_data:
-            # If we fail, but have cache, return cache as fallback
-            if db_user:
-                logger.warning(f"Scrape failed for {username}, falling back to stale cache.")
+        # Return cache if valid
+        if db_user and not force:
+            has_media = len(db_user.media) > 0
+            is_fresh = db_user.last_scraped_at > current_time - timedelta(hours=6)
+            has_counts = db_user.followers_count > 0
+            
+            if has_media and is_fresh and has_counts:
+                logger.info(f"Returning cached data for {username}")
                 return db_user
             
-            raise HTTPException(
-                status_code=429, 
-                detail="Instagram block or Rate Limit detected. Please wait 15-30 mins or provide a valid SESSION_ID."
-            )
+            if not has_media and db_user.last_scraped_at > current_time - timedelta(minutes=10):
+                logger.info(f"Returning recently attempted metadata for {username}")
+                return db_user
+
+        # 2. Scrape Fresh Data
+        logger.info(f"Starting live scrape for: {username}")
+        try:
+            scraped_data = await scraper.scrape_profile(username)
+            if not scraped_data:
+                if db_user:
+                    logger.warning(f"Scrape failed for {username}, falling back to stale cache.")
+                    return db_user
+                
+                raise HTTPException(
+                    status_code=429, 
+                    detail="Instagram block or Rate Limit detected."
+                )
+        except HTTPException:
+            raise
+        except Exception as scrape_err:
+            logger.error(f"Scraper crashed: {scrape_err}\n{traceback.format_exc()}")
+            if db_user: return db_user
+            raise HTTPException(status_code=500, detail=f"Scraper error: {str(scrape_err)}")
 
         # 3. Save to Database
         new_followers = scraped_data.get("follower_count", 0)
