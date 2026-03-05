@@ -179,22 +179,29 @@ class InstagramScraper:
                     except Exception as e:
                         print(f"DEBUG: Mobile info fetch failed: {e}")
 
-                # 3. Fallback to HTML Mining if still missing counts
-                if not profile_user.get("follower_count"):
+                # 3. Fallback to HTML Mining (Very reliable with Mobile UA)
+                if not profile_user.get("follower_count") or profile_user.get("follower_count") == 0:
                     try:
-                        anon_headers = {
-                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                            "Accept": "text/html,application/xhtml+xml",
+                        print(f"DEBUG: Fetching HTML for {username} (Mobile UA)...")
+                        mobile_html_headers = {
+                            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1",
+                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                            "Accept-Language": "en-US,en;q=0.9",
                         }
-                        html_r = await client.get(f"https://www.instagram.com/{username}/", headers=anon_headers)
-                        if html_r.status_code == 200:
-                            soup = BeautifulSoup(html_r.text, "lxml")
-                            meta_user = self._parse_from_meta(soup, username)
-                            # Merge only if non-zero
-                            if meta_user.get("follower_count"):
-                                profile_user["follower_count"] = meta_user["follower_count"]
-                                profile_user["following_count"] = meta_user.get("following_count", 0)
-                    except: pass
+                        # We use a separate client or just a one-off request for anonymity
+                        async with httpx.AsyncClient(headers=mobile_html_headers, follow_redirects=True, timeout=15.0) as anon_client:
+                            html_r = await anon_client.get(f"https://www.instagram.com/{username}/")
+                            if html_r.status_code == 200:
+                                soup = BeautifulSoup(html_r.text, "lxml")
+                                meta_user = self._parse_from_meta(soup, username)
+                                # Merge only if we found something useful
+                                if meta_user.get("follower_count") and meta_user["follower_count"] > 0:
+                                    profile_user["follower_count"] = meta_user["follower_count"]
+                                    profile_user["following_count"] = meta_user.get("following_count", profile_user.get("following_count", 0))
+                                    profile_user["media_count"] = meta_user.get("media_count", profile_user.get("media_count", 0))
+                                    print(f"DEBUG: HTML Meta Success — Followers: {profile_user['follower_count']}")
+                    except Exception as e:
+                        print(f"DEBUG: HTML meta fetch failed: {e}")
 
                 # Merge and Format
                 if feed_items or profile_user.get("username"):
@@ -309,10 +316,14 @@ class InstagramScraper:
         except: return ""
 
     def _parse_from_meta(self, soup: BeautifulSoup, username: str) -> Dict[str, Any]:
-        """Extract follower/following/post counts from og:description meta tag."""
+        """Extract follower/following/post counts from og:description meta tag, 
+        and biography from script tags if available.
+        """
         desc = soup.find("meta", property="og:description")
         img = soup.find("meta", property="og:image")
         f, ing, p = 0, 0, 0
+        bio = ""
+        
         if desc:
             content = desc.get("content", "")
             try:
@@ -329,10 +340,23 @@ class InstagramScraper:
                 if ing_m: ing = p_n(ing_m.group(1))
                 if p_m: p = p_n(p_m.group(1))
             except: pass
+            
+        # Try to find biography in scripts
+        for script in soup.find_all("script"):
+            if not script.string: continue
+            # Common pattern for script-based JSON
+            b_m = re.search(r'"biography":\s*"([^"]+)"', script.string)
+            if b_m:
+                try:
+                    # Handle unicode escapes (e.g., \uD83D)
+                    bio = b_m.group(1).encode().decode('unicode-escape', errors='ignore')
+                    break
+                except: pass
+        
         return {
             "username": username,
             "full_name": username,
-            "biography": "",
+            "biography": bio,
             "profile_pic_url": img.get("content") if img else None,
             "follower_count": f,
             "following_count": ing,
