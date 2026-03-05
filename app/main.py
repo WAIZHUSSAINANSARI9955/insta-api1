@@ -31,18 +31,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Robust startup
+# Startup logic
 @app.on_event("startup")
 async def startup():
-    logger.info("Starting up and checking database connection...")
+    logger.info("Local Backend Ready at http://localhost:8000")
     try:
         async with engine.begin() as conn:
-            # Create tables
             await conn.run_sync(Base.metadata.create_all)
-            logger.info("Database connection and table check SUCCESSFUL.")
+            logger.info("Database initialized.")
     except Exception as e:
-        logger.error(f"DATABASE STARTUP FAILED: {e}")
-        # We don't exit, but this helps the user see the log
+        logger.error(f"DB Error: {e}")
 
 # Include routes
 app.include_router(profile.router)
